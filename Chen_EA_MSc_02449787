@@ -1,0 +1,1004 @@
+rm(list = ls())
+library(lmerTest)
+packageVersion("lmerTest")
+library(broom.mixed)
+packageVersion("broom.mixed")
+library(gghalves)
+packageVersion("gghalves")
+library(ggsignif)
+packageVersion("ggsignif")
+library(patchwork)
+library(bayesplot)
+library(MASS)
+packageVersion("MASS")
+library(fitdistrplus)
+packageVersion("fitdistrplus")
+library(multcomp)
+packageVersion("multcomp")
+library(brms)
+packageVersion("brms")
+library(reshape2)
+packageVersion("reshape2")
+library(lme4)
+packageVersion("lme4")
+library(Matrix)
+packageVersion("Matrix")
+library(dplyr)
+library(readxl)
+library(writexl)
+library(tidyverse)
+library(cowplot)
+library(Matrix)
+library(lme4)
+library(openxlsx)
+library(readxl)
+library(writexl)
+library(dplyr)
+library(tidyverse)
+library(mclust)
+packageVersion("mclust")
+library(cowplot)
+packageVersion("cowplot")
+library(lubridate)
+packageVersion("lubridate")
+packageVersion("ggplot2")
+packageVersion("MuMIn")
+file_path <- "D:/data CJY new.xlsx"
+data <- read_excel(file_path, sheet = 1)
+csv_file_path <- "data new.csv"
+beecc<-data
+
+beecc <- select(beecc, Date, `Colony.no.`, `Head width`,Survival)
+beecc$Colony.no. <- as.factor(beecc$Colony.no.)
+beecc$`Head width` <- as.numeric(beecc$`Head width`)
+beecc$Date <- ymd(beecc$Date)
+head(beecc)
+write.xlsx(beecc, file = "beecc.xlsx")
+beecc<- beecc %>% filter(complete.cases(.))
+beecc<-beecc %>%
+  mutate(Treatment = case_when(
+    Colony.no. %in% c("8","12","15","18","19", "20", "21", "26", "27", "28") ~ "Strep", 
+    Colony.no. %in% c("2","6","7","10","11", "14", "16", "25", "29", "33") ~ "Prothio",
+    Colony.no. %in% c("1","4","5","9","13", "17", "22", "23", "24", "32") ~ "Control",
+  ))
+beecc<-beecc %>%
+  mutate(Site = case_when(
+    Colony.no. %in% c("21","23","29") ~ "Apiary", 
+    Colony.no. %in% c("1","2","15") ~ "Meso edge",
+    Colony.no. %in% c("4","11","27") ~ "Upper pound hill",
+    Colony.no. %in% c("5","16","19") ~ "Nursery field",
+    Colony.no. %in% c("6","13","18") ~ "Nash hall/wood",
+    Colony.no. %in% c("7","20","22") ~ "Gunnes hill",
+    Colony.no. %in% c("8","25","32") ~ "Rookery slope",
+    Colony.no. %in% c("9","10","12") ~ "Roadend",
+    Colony.no. %in% c("14","17","28") ~ "Four acre field",
+    Colony.no. %in% c("24","26","33") ~ "Fox field",
+  ))
+beecc<-beecc %>%
+  mutate(Zone = case_when(
+    Colony.no. %in% c("1","2","15","4","11", "27", "5", "16", "19") ~ "north", 
+    Colony.no. %in% c("6","13","18","7", "20", "22") ~ "central",
+    Colony.no. %in% c("9","10","12","21","23", "29", "24", "26", "33", "8", "25", "32", "14", "17", "28") ~ "south",
+  ))
+beecc$Treatment <- as.factor(beecc$Treatment)
+beecc$Survival<- as.factor(beecc$Survival)
+beecc$Zone <- as.factor(beecc$Zone)
+beecc$Site <- as.factor(beecc$Site)
+sample.summary <- beecc %>%
+  group_by(Colony.no., Treatment, Site) %>% summarise(n = n())
+sample.summary<-arrange(sample.summary, Treatment, Colony.no.)
+sample.summary
+hist(beecc$`Head width`, breaks=30)
+
+data_to_cluster <- beecc$`Head width`
+# Mclust
+mclust_result <- Mclust(data_to_cluster)
+
+# Summary
+summary(mclust_result)
+total_variance <- var(data_to_cluster) * (length(data_to_cluster) - 1)
+within_variance <- 0
+for (i in 1:length(mclust_result$parameters$mean)) {
+  cluster_indices <- mclust_result$classification == i
+  cluster_variance <- var(data_to_cluster[cluster_indices]) * (sum(cluster_indices) - 1)
+  within_variance <- within_variance + cluster_variance
+}
+explained_variance <- (total_variance - within_variance) / total_variance
+r2_clustering <- explained_variance
+print(r2_clustering)
+
+# 设置刻度线朝里
+par(tcl = -0.3)  # 负值使刻度线朝里，数值大小控制刻度线长度
+
+# 绘制Mclust结果的所有图形
+plot(mclust_result)
+
+plot(mclust_result, what = "density", data=beecc$`Head width`,  breaks = 20)
+# 查看每个聚类的均值和方差
+means <- mclust_result$parameters$mean
+means
+variances <- mclust_result$parameters$variance$sigmasq
+variances
+# 提取每个聚类的成员
+cluster_assignments <- mclust_result$classification
+
+# 提取各聚类的具体值范围
+for (i in 1:max(cluster_assignments)) {
+  cat("Cluster", i, "range:\n")
+  cluster_data <- data_to_cluster[cluster_assignments == i]
+  cat("Min:", min(cluster_data), "Max:", max(cluster_data), "\n\n")
+}
+
+print(means)
+print(variances)
+
+# 提取聚类结果
+cluster_result <- mclust_result$classification
+
+# 将聚类结果作为新列添加到 beecc 数据框
+beecc$Cluster <- cluster_result
+beecc<-beecc %>% 
+  unite(tnmt_clust, Treatment, Cluster, sep="_", remove = FALSE)
+
+beecc$tnmt_clust <- as.factor(beecc$tnmt_clust)
+beecc$CLUST <- as.factor(beecc$Cluster)
+beecc<-beecc %>%
+  mutate(Caste = case_when(
+    CLUST %in% c("1", "2","3") ~ "Workers&Males", #clust 1, 2 and 3 = workers
+    CLUST %in% c("4") ~ "Queens", 
+  ))
+beecc<-beecc %>% 
+  unite(tnmt_caste, Treatment, Caste, sep="_", remove = FALSE)
+beecc$tnmt_caste <- as.factor(beecc$tnmt_caste)
+new_data <- read_excel("D:/initial data.xlsx")
+new_data$Colony.no. <- as.factor(new_data$Colony.no.)
+beecc <- beecc %>%
+  left_join(new_data, by = "Colony.no.")
+
+#analysis bee size
+workers_males_data <- beecc %>% filter(Caste == "Workers&Males")
+workers_males_data<-workers_males_data%>%
+  mutate(WGT = case_when(
+    Colony.no. %in% c("1","2","15") ~ "1", 
+    Colony.no. %in% c("4","11","27") ~ "2",
+    Colony.no. %in% c("5","16","19") ~ "3",
+    Colony.no. %in% c("9","10","12") ~ "4", 
+    Colony.no. %in% c("7","20","22") ~ "5",
+    Colony.no. %in% c("14","17","28") ~ "6",
+    Colony.no. %in% c("24","26","33") ~ "7",
+    Colony.no. %in% c("6","13","18") ~ "8", 
+    Colony.no. %in% c("8","25","32") ~ "9",
+    Colony.no. %in% c("21","23","29") ~ "10",
+  ))
+workers_males_data <- workers_males_data %>%
+  rename(Head_Width = `Head width`)
+workers_males_data <- workers_males_data %>%
+  left_join(new_data, by = "Colony.no.")
+workers_males_data <- workers_males_data %>%
+  rename(Initial_weight = `initial data.x`)
+#模型拟合
+shapiro_test <- shapiro.test(workers_males_data$Head_Width)
+print(shapiro_test)
+#模型1-贝叶斯分布模型
+workers_males_data$Treatment <- relevel(workers_males_data$Treatment, ref = "Control")
+model_brms <- brm(
+  Head_Width ~ Treatment + (1 | WGT/Colony.no.) + (1 | Initial_weight) + (1 | Survival), 
+  data = workers_males_data, 
+  family = gaussian(),
+  control = list(adapt_delta = 0.99)  # 调整 adapt_delta
+)
+summary(model_brms)
+#模型2-线性模型
+glmm_model <- lmer(
+  Head_Width ~ Treatment + (1 | WGT/Colony.no.) + (1 | Initial_weight) + (1 | Survival), 
+  data = workers_males_data
+)
+summary(glmm_model)
+
+#模型检验
+#1.探究AIC和BIC
+# 对 glmm_model 计算 AIC 和 BIC
+aic_glmm <- AIC(glmm_model)
+bic_glmm <- BIC(glmm_model)
+# 输出 AIC 和 BIC
+print(paste("AIC for glmm_model:", aic_glmm))
+print(paste("BIC for glmm_model:", bic_glmm))
+
+# 对 brms_model 计算 loo 和 waic
+loo_brms <- loo(model_brms)
+waic_brms <- waic(model_brms)
+# 输出 loo 和 waic 结果
+print(loo_brms)
+print(waic_brms)
+#结果显示brm更好
+#2.残差分析
+#两个模型都没有明显趋势，都可以
+# 绘制 glmm_model 的残差图
+plot(resid(glmm_model), main="Residuals for glmm_model")
+# brms 模型残差分析
+posterior_predict_brms <- posterior_predict(model_brms)
+residuals_brms <- workers_males_data$Head_Width - rowMeans(posterior_predict_brms)
+plot(residuals_brms, main="Residuals for brms_model")
+#残差正态
+#贝叶斯不符合残差正态
+#glm符合吗？
+#也不符合，且取倒数或者对数都取跑不出来
+#所以选择贝叶斯模型
+#3.R2
+# 计算贝叶斯R方
+bayes_r2_result <- bayes_R2(model_brms)
+
+# 输出R方的结果
+print(bayes_r2_result)
+# 计算 R² 值
+library(MuMIn)
+r_squared_values <- r.squaredGLMM(glmm_model)
+
+# 输出结果
+print(r_squared_values)
+
+
+#绘制图像
+## 获取 p 值
+# 提取固定效应的估计值和标准误差
+fixed_effects <- as.data.frame(fixef(model_brms))
+
+# 计算近似的p值
+z_values <- fixed_effects[, "Estimate"] / fixed_effects[, "Est.Error"]
+p_values <- 2 * (1 - pnorm(abs(z_values)))
+
+# 查看p值
+print(p_values)
+# 重新设置 Treatment 变量的水平顺序
+workers_males_data$Treatment <- factor(workers_males_data$Treatment, levels = c("Control", "Strep", "Prothio"))
+
+# 然后再绘制图表
+p <- ggplot(workers_males_data, aes(x = Treatment, y = Head_Width)) +
+  geom_half_violin(aes(fill = Treatment), side = "r", trim = FALSE, position = position_nudge(x = 0.03)) +
+  geom_half_point(aes(color = Treatment), side = "l", position = position_nudge(x = -0.03)) +
+  geom_boxplot(width = 0.12, position = position_nudge(x = 0.03), alpha = 0.4, color = "black", fill = NA) +
+  scale_fill_manual(values = c("Control" = "#F7D6DA", "Strep" = "#B3D1ED", "Prothio" = "#B3D9B2")) +
+  scale_color_manual(values = c("Control" = "darkred", "Strep" = "darkblue", "Prothio" = "darkgreen")) +
+  theme_minimal() + 
+  labs(x = "Treatment", y = "Head Width") +
+  theme(
+    panel.border = element_rect(color = "black", fill = NA, size = 1), 
+    panel.grid = element_blank(),
+    axis.ticks.length = unit(-0.2, "cm"),  # 调整刻度线的长度，确保向内
+    axis.ticks = element_line(color = "black"),  # 确保刻度线颜色可见
+    axis.text.x = element_text(margin = margin(t = 0.5, unit = "cm")),  # x轴刻度文字与刻度线的间距
+    axis.text.y = element_text(margin = margin(r = 0.5, unit = "cm"))   # y轴刻度文字与刻度线的间距
+  ) +
+  geom_signif(comparisons = list(c("Control", "Strep"), c("Control", "Prothio")),
+              annotations = c(paste("p =", round(p_values[3], 3)), paste("p =", round(p_values[2], 3))),
+              y_position = c(max(workers_males_data$Head_Width) + 0.3, max(workers_males_data$Head_Width) + 0.5),
+              tip_length = 0.02, textsize = 2.5, vjust = -0.2) 
+
+print(p)
+
+
+
+#queens
+#数据处理
+queens_data <- beecc %>% filter(Caste == "Queens")
+queens_data<-queens_data%>%
+  mutate(WGT = case_when(
+    Colony.no. %in% c("1","2","15") ~ "1", 
+    Colony.no. %in% c("4","11","27") ~ "2",
+    Colony.no. %in% c("5","16","19") ~ "3",
+    Colony.no. %in% c("9","10","12") ~ "4", 
+    Colony.no. %in% c("7","20","22") ~ "5",
+    Colony.no. %in% c("14","17","28") ~ "6",
+    Colony.no. %in% c("24","26","33") ~ "7",
+    Colony.no. %in% c("6","13","18") ~ "8", 
+    Colony.no. %in% c("8","25","32") ~ "9",
+    Colony.no. %in% c("21","23","29") ~ "10",
+  ))
+queens_data <- queens_data %>%
+  rename(Head_width = `Head width`)
+shapiro_test <- shapiro.test(queens_data$Head_width)
+print(shapiro_test)
+#数据不符合正态分布
+queens_data <- queens_data %>%
+  rename(Initial_weight = `initial data`)
+#模型拟合
+#模型1-贝叶斯分布模型
+model_brms_queens <- brm(
+  Head_width ~ Treatment + (1|WGT/Colony.no.) + (1 |Initial_weight) + (1 | Survival),
+  data = queens_data,
+  family = gaussian(),     # 随机种子，保证结果可重复
+  control = list(adapt_delta = 0.99))
+summary(model_brms_queens)
+#线性模型
+glmm_model_queens <- lmer(
+  Head_width ~ Treatment + (1 | WGT/Colony.no.) + (1 | Initial_weight) + (1 | Survival),
+  data = queens_data
+)
+summary(glmm_model_queens)
+
+#模型检验
+#1.AIC
+# 对 GLMM 模型计算 AIC 和 BIC
+aic_glmm <- AIC(glmm_model_queens)
+bic_glmm <- BIC(glmm_model_queens)
+# 对贝叶斯模型计算 WAIC（或 LOOIC）
+waic_brms <- waic(model_brms_queens)
+loo_brms <- loo(model_brms_queens)
+# 打印结果
+print(paste("AIC for glmm_model_queens:", aic_glmm))
+print(paste("BIC for glmm_model_queens:", bic_glmm))
+print(waic_brms)
+print(loo_brms)
+#2.残差分析
+# 绘制 GLMM 模型的残差图
+residuals_glmm <- resid(glmm_model_queens)
+fitted_values_glmm <- fitted(glmm_model_queens)
+plot(fitted_values_glmm, residuals_glmm)
+abline(h = 0, col = "red", lwd = 2)
+title("Residuals for glmm_model_queens")
+# 提取残差
+residuals_brms <- residuals(model_brms_queens)
+
+# 如果 residuals() 返回的是数据框，可以直接使用它的值
+residuals_brms <- as.numeric(residuals_brms)
+
+# 绘制残差的QQ图
+qqnorm(residuals_brms)
+qqline(residuals_brms, col = "red")
+
+# 绘制残差的直方图
+hist(residuals_brms, breaks = 30, main = "Residuals Histogram (brms)", xlab = "Residuals")
+
+# 进行 Shapiro-Wilk 正态性检验
+shapiro.test(residuals_brms)
+# 提取残差
+residuals_glmm <- resid(glmm_model_queens)
+
+# 绘制残差的QQ图
+qqnorm(residuals_glmm)
+qqline(residuals_glmm, col = "red")
+
+# 绘制残差的直方图
+hist(residuals_glmm, breaks = 30, main = "Residuals Histogram (lmer)", xlab = "Residuals")
+shapiro.test(residuals_glmm)
+
+# 绘制贝叶斯模型的残差图
+residuals_brms <- residuals(model_brms_queens)
+fitted_values_brms <- fitted(model_brms_queens)
+plot(fitted_values_brms, residuals_brms)
+abline(h = 0, col = "red", lwd = 2)
+title("Residuals for brms_model_queens")
+#贝叶斯残差好一点，但有异常值，删除掉
+
+#R2
+# 计算 R² 值
+bayes_r2_result <- bayes_R2(model_brms_queens)
+
+# 输出 R² 值
+print(bayes_r2_result)
+# 计算 R² 值
+r_squared <- r.squaredGLMM(glmm_model_queens)
+
+# 输出 R² 值
+print(r_squared)
+# 提取固定效应的估计值和标准误差
+fixed_effects <- fixef(model_brms_queens)
+
+# 计算 z 值
+z_values <- fixed_effects[, "Estimate"] / fixed_effects[, "Est.Error"]
+
+# 计算近似 p 值
+p_values <- 2 * (1 - pnorm(abs(z_values)))
+
+# 查看 p 值
+print(p_values)
+queens_data$Treatment <- factor(queens_data$Treatment, levels = c("Control", "Strep", "Prothio"))
+p <- ggplot(queens_data, aes(x = Treatment, y = Head_width)) +
+  geom_half_violin(aes(fill = Treatment), side = "r", trim = FALSE, position = position_nudge(x = 0.03)) +
+  geom_half_point(aes(color = Treatment), side = "l", position = position_nudge(x = -0.03), fill = NA) +
+  geom_boxplot(aes(fill = Treatment), width = 0.12, position = position_nudge(x = 0.03), alpha = 0.4, color = "black") +
+  scale_fill_manual(values = c("Control" = "#F7D6DA", "Prothio" = "#B3D9B2", "Strep" = "#B3D1ED")) +
+  scale_color_manual(values = c("Control" = "darkred", "Prothio" = "darkgreen", "Strep" = "darkblue")) +
+  theme_minimal() + 
+  labs(x = "Treatment", y = "Head Width") +
+  theme(
+    panel.border = element_rect(color = "black", fill = NA, size = 1), 
+    panel.grid = element_blank(),
+    axis.ticks.length = unit(-0.2, "cm"),  # 设置刻度线向内，长度为 2.5 cm
+    axis.ticks = element_line(color = "black"),  # 确保刻度线颜色清晰可见
+    axis.text.x = element_text(margin = margin(t = 0.5, unit = "cm")),  # 调整 x 轴刻度文字与刻度线的间距
+    axis.text.y = element_text(margin = margin(r = 0.5, unit = "cm"))   # 调整 y 轴刻度文字与刻度线的间距
+  ) +
+  geom_signif(comparisons = list(c("Control", "Prothio"), c("Control", "Strep")),
+              annotations = c(paste("p =", round(p_values[2], 3)), paste("p =", round(p_values[3], 3))),
+              y_position = c(max(queens_data$Head_width) + 0.4, max(queens_data$Head_width) + 0.28),
+              tip_length = 0.02, textsize = 2.5, vjust = -0.2)  # 调整 textsize 为 2.5
+
+# 显示图表
+print(p)
+#Analysis weight change
+#野外阶段
+#数据整理
+file_path_weight <- "D:/weight before and after.xlsx"
+data_weight <- read_excel(file_path_weight, sheet = 1)
+csv_file_path_weight <- "data_weight.csv"
+bee_weight<-data_weight
+bee_weight<-bee_weight %>%
+  mutate(Treatment = case_when(
+    Colony.no. %in% c("8","12","15","18","19", "20", "21", "26", "27", "28") ~ "Strep", 
+    Colony.no. %in% c("2","6","7","10","11", "14", "16", "25", "29", "33") ~ "Prothio",
+    Colony.no. %in% c("1","4","5","9","13", "17", "22", "23", "24", "32") ~ "Control",
+  ))
+bee_weight<-bee_weight %>%
+  mutate(WGT = case_when(
+    Colony.no. %in% c("1","2","15") ~ "1", 
+    Colony.no. %in% c("4","11","27") ~ "2",
+    Colony.no. %in% c("5","16","19") ~ "3",
+    Colony.no. %in% c("9","10","12") ~ "4", 
+    Colony.no. %in% c("7","20","22") ~ "5",
+    Colony.no. %in% c("14","17","28") ~ "6",
+    Colony.no. %in% c("24","26","33") ~ "7",
+    Colony.no. %in% c("6","13","18") ~ "8", 
+    Colony.no. %in% c("8","25","32") ~ "9",
+    Colony.no. %in% c("21","23","29") ~ "10",
+  ))
+bee_weight <- bee_weight %>%
+  mutate(Weight_Change = `13.6.24` - `16.5.24`)
+qqnorm(bee_weight$Weight_Change)
+qqline(bee_weight$Weight_Change, col = "red")
+shapiro.test(bee_weight$Weight_Change)
+bee_weight$WGT <- as.factor(bee_weight$WGT)
+bee_weight$Treatment <- as.factor(bee_weight$Treatment)
+#模型构建
+head(bee_weight)
+shapiro_test <- shapiro.test(bee_weight$Weight_Change)
+print(shapiro_test)
+#glmm
+glmm_model <- lmer(Weight_Change ~ Treatment + (1 | WGT), data = bee_weight)
+summary(glmm_model)
+confint(glmm_model, level = 0.95)
+#贝叶斯
+brms_model_field <- brm(
+  formula = Weight_Change ~ Treatment + (1 | WGT),  # 公式与 lmer 模型相同
+  data = bee_weight,  # 数据集
+  family = gaussian(),  # 使用高斯分布
+  control = list(adapt_delta = 0.95)  # 控制参数，增加 adapt_delta 以减少发散
+)
+summary(brms_model_field)
+#模型检验
+#AICBIC比较
+aic_glmm <- AIC(glmm_model)
+bic_glmm <- BIC(glmm_model)
+print(paste("AIC for glmm_model:", aic_glmm))
+print(paste("BIC for glmm_model:", bic_glmm))
+# 添加 LOOIC 到 brms 模型
+brms_model_field <- add_criterion(brms_model_field, criterion = "loo")
+# 打印 LOOIC 结果
+loo_brms <- brms_model_field$criteria$loo
+print(loo_brms)
+waic_brms <- waic(brms_model_field)
+print(waic_brms)
+#方差齐性
+# 线性模型的Breusch-Pagan检验通常是在线性回归模型上进行的
+# 因此，我们可以基于 `glmm_model` 的固定效应部分创建一个线性模型来进行Breusch-Pagan检验
+
+linear_model_glmm <- lm(Weight_Change ~ Treatment, data = bee_weight)
+library(lmtest)
+bp_test_glmm <- bptest(linear_model_glmm)
+print(bp_test_glmm)
+# 使用 brms 模型进行残差分析
+posterior_samples <- posterior_predict(brms_model_field)
+residuals_brms <- bee_weight$Weight_Change - rowMeans(posterior_samples)
+
+# 绘制残差图
+plot(rowMeans(posterior_samples), residuals_brms)
+abline(h = 0, col = "red")
+#所以选择glmm
+#R2
+# 计算 R^2
+r_squared <- r.squaredGLMM(glmm_model)
+
+# 打印 R^2 结果
+print(r_squared)
+bee_weight$Treatment <- factor(bee_weight$Treatment, levels = c("Control", "Strep", "Prothio"))
+p <- ggplot(bee_weight, aes(x = Treatment, y = Weight_Change)) +
+  geom_half_violin(aes(fill = Treatment), side = "r", trim = FALSE, position = position_nudge(x = 0.03)) +
+  geom_half_point(aes(color = Treatment), side = "l", position = position_nudge(x = -0.03)) +
+  geom_boxplot(aes(fill = Treatment), width = 0.12, position = position_nudge(x = 0.03), alpha = 0.4, color = "black") +
+  scale_fill_manual(values = c("Control" = "#F7D6DA", "Prothio" = "#B3D9B2", "Strep" = "#B3D1ED")) +
+  scale_color_manual(values = c("Control" = "darkred", "Prothio" = "darkgreen", "Strep" = "darkblue")) +
+  theme_minimal() + 
+  labs(x = "Treatment", y = "Weight Change") +
+  theme(
+    panel.border = element_rect(color = "black", fill = NA, size = 1), 
+    panel.grid = element_blank(),
+    axis.ticks.length = unit(-0.2, "cm"),  # 设置刻度线向内，长度为 0.2 cm
+    axis.ticks = element_line(color = "black"),  # 确保刻度线颜色清晰可见
+    axis.text.x = element_text(margin = margin(t = 0.5, unit = "cm")),  # 调整 x 轴刻度文字与刻度线的间距
+    axis.text.y = element_text(margin = margin(r = 0.5, unit = "cm"))   # 调整 y 轴刻度文字与刻度线的间距
+  ) +
+  geom_signif(comparisons = list(c("Control", "Prothio"), c("Control", "Strep")),
+              annotations = c(paste("p =", round(p_value_Prothio, 3)), paste("p =", round(p_value_Strep, 3))),
+              y_position = c(max(bee_weight$Weight_Change, na.rm = TRUE) + 180, 
+                             max(bee_weight$Weight_Change, na.rm = TRUE) + 130),
+              tip_length = 0.02, textsize = 2.5, vjust = -0.2) +
+  expand_limits(y = max(bee_weight$Weight_Change, na.rm = TRUE) + 200) 
+
+# 显示图表
+print(p)
+
+
+#实验室阶段
+#数据处理
+file_path_weight_lab <- "D:/weight lab.xlsx"
+data_weight_lab <- read_excel(file_path_weight_lab, sheet = 1)
+csv_file_path_weight_lab <- "data_weight_lab.csv"
+bee_weight_lab<-data_weight_lab
+bee_weight_lab<-bee_weight_lab %>%
+  mutate(Treatment = case_when(
+    Colony.no. %in% c("8","12","15","18","19", "20", "21", "26", "27", "28") ~ "Strep", 
+    Colony.no. %in% c("2","6","7","10","11", "14", "16", "25", "29", "33") ~ "Prothio",
+    Colony.no. %in% c("1","4","5","9","13", "17", "22", "23", "24", "32") ~ "Control",
+  ))
+bee_weight_lab<-bee_weight_lab %>%
+  mutate(WGT = case_when(
+    Colony.no. %in% c("1","2","15") ~ "1", 
+    Colony.no. %in% c("4","11","27") ~ "2",
+    Colony.no. %in% c("5","16","19") ~ "3",
+    Colony.no. %in% c("9","10","12") ~ "4", 
+    Colony.no. %in% c("7","20","22") ~ "5",
+    Colony.no. %in% c("14","17","28") ~ "6",
+    Colony.no. %in% c("24","26","33") ~ "7",
+    Colony.no. %in% c("6","13","18") ~ "8", 
+    Colony.no. %in% c("8","25","32") ~ "9",
+    Colony.no. %in% c("21","23","29") ~ "10",
+  ))
+data_long <- melt(bee_weight_lab, id.vars = c("Colony.no.", "Treatment", "WGT"), 
+                  variable.name = "Date", value.name = "Weight")
+data_long$Date <- as.Date(gsub("\\.", "-", data_long$Date), format = "%d-%m-%y")
+bee_weight_lab_change <- bee_weight_lab %>%
+  mutate(Weight_Change = `16.5.24` - `9.5.24`)
+data_long_change <- bee_weight_lab_change %>%
+  select(Colony.no., Treatment, WGT, Weight_Change)
+
+
+#线性模型
+model_change <- lmer( Weight_Change ~ Treatment + (1|WGT), data = data_long_change)
+summary(model_change)
+# 计算模型的95%置信区间
+confint(model_change, level = 0.95)
+
+#贝叶斯模型
+brms_model_change <- brm(
+  formula = Weight_Change ~ Treatment + (1 | WGT),  # 模型公式与 lmer 类似
+  data = data_long_change,  # 数据集
+  family = gaussian(),  # 使用高斯分布
+  control = list(adapt_delta = 0.95),  # 控制参数，增加 adapt_delta 以减少发散
+)
+summary(brms_model_change)
+
+#模型检验
+aic_glmm <- AIC(model_change)
+bic_glmm <- BIC(model_change)
+loo_brms <- loo(brms_model_change)
+waic_brms <- waic(brms_model_change)
+print(paste("AIC for GLMM:", aic_glmm))
+print(paste("BIC for GLMM:", bic_glmm))
+
+print(loo_brms)
+print(waic_brms)
+#方差齐性
+linear_model_glmm_lab <- lm(Weight_Change ~ Treatment, data = data_long_change)
+bp_test_glmm <- bptest(linear_model_glmm_lab)
+print(bp_test_glmm)
+#R2
+# 对 GLMM 计算 R²
+library(MuMIn)
+r2_glmm <- r.squaredGLMM(model_change)
+print(r2_glmm)
+# 对贝叶斯模型计算 R²
+bayes_r2_brms <- bayes_R2(brms_model_change)
+print(bayes_r2_brms)
+
+#选择线性模型
+#绘图
+# 假设你已经计算好了 p 值，例如：
+p_value_AB <- 0.971  # Control 和 Prothio 之间的 p 值
+p_value_AC <- 0.515  # Control 和 Strep 之间的 p 值
+data_long_change$Treatment <- factor(data_long_change$Treatment, levels = c("Control", "Strep", "Prothio"))
+# 创建图表并添加 p 值
+p <- ggplot(data_long_change, aes(x = Treatment, y = Weight_Change)) +
+  geom_half_violin(aes(fill = Treatment), side = "r", trim = FALSE, position = position_nudge(x = 0.03)) +
+  geom_half_point(aes(color = Treatment), side = "l", position = position_nudge(x = -0.03)) +
+  geom_boxplot(aes(fill = Treatment), width = 0.12, position = position_nudge(x = 0.03), alpha = 0.4, color = "black") +
+  scale_fill_manual(values = c("Control" = "#F7D6DA", "Prothio" = "#B3D9B2", "Strep" = "#B3D1ED")) +
+  scale_color_manual(values = c("Control"= "darkred", "Prothio" = "darkgreen",  "Strep"= "darkblue")) +
+  theme_minimal() + 
+  labs(x = "Treatment", y = "Weight Change") +
+  theme(
+    panel.border = element_rect(color = "black", fill = NA, size = 1), 
+    panel.grid = element_blank(),
+    axis.ticks.length = unit(-0.2, "cm"),  # 设置刻度线向内，长度为 0.2 cm
+    axis.ticks = element_line(color = "black"),  # 确保刻度线颜色清晰可见
+    axis.text.x = element_text(margin = margin(t = 0.5, unit = "cm")),  # 调整 x 轴刻度文字与刻度线的间距
+    axis.text.y = element_text(margin = margin(r = 0.5, unit = "cm"))   # 调整 y 轴刻度文字与刻度线的间距
+  ) +
+  geom_signif(comparisons = list(c("Control", "Prothio"), c("Control", "Strep")),
+              annotations = c(paste("p =", round(p_value_AB, 3)), paste("p =", round(p_value_AC, 3))),
+              y_position = c(max(data_long_change$Weight_Change, na.rm = TRUE) +65, 
+                             max(data_long_change$Weight_Change, na.rm = TRUE) + 45),
+              tip_length = 0.02, textsize = 2.5, vjust = -0.2)+
+  expand_limits(y = max(data_long_change$Weight_Change, na.rm = TRUE) + 80) 
+
+# 显示图表
+print(p)
+#Analysis bee number and mortality
+workers_males_count <- beecc %>%
+  filter(Caste == "Workers&Males") %>%
+  group_by(Colony.no.) %>%
+  summarise(Count = n())
+head(workers_males_count)
+workers_males_count<-workers_males_count %>%
+  mutate(Treatment = case_when(
+    Colony.no. %in% c("8","12","15","18","19", "20", "21", "26", "27", "28") ~ "Strep", 
+    Colony.no. %in% c("2","6","7","10","11", "14", "16", "25", "29", "33") ~ "Prothio",
+    Colony.no. %in% c("1","4","5","9","13", "17", "22", "23", "24", "32") ~ "Control",
+  ))
+#看一下A有多少
+total_count_Strep <- workers_males_count %>%
+  filter(Treatment == "Strep") %>%  # 筛选 Treatment 为 "A"
+  summarize(Total_Count = sum(Count))  # 求和 Count 列
+# 打印结果
+print(total_count_Strep)
+#看一下A有多少
+total_count_Prothio <- workers_males_count %>%
+  filter(Treatment == "Prothio") %>%  # 筛选 Treatment 为 "A"
+  summarize(Total_Count = sum(Count))  # 求和 Count 列
+# 打印结果
+print(total_count_Prothio)
+total_count_Control <- workers_males_count %>%
+  filter(Treatment == "Control") %>%  # 筛选 Treatment 为 "A"
+  summarize(Total_Count = sum(Count))  # 求和 Count 列
+# 打印结果
+print(total_count_Control)
+workers_males_count<-workers_males_count %>%
+  mutate(WGT = case_when(
+    Colony.no. %in% c("1","2","15") ~ "1", 
+    Colony.no. %in% c("4","11","27") ~ "2",
+    Colony.no. %in% c("5","16","19") ~ "3",
+    Colony.no. %in% c("9","10","12") ~ "4", 
+    Colony.no. %in% c("7","20","22") ~ "5",
+    Colony.no. %in% c("14","17","28") ~ "6",
+    Colony.no. %in% c("24","26","33") ~ "7",
+    Colony.no. %in% c("6","13","18") ~ "8", 
+    Colony.no. %in% c("8","25","32") ~ "9",
+    Colony.no. %in% c("21","23","29") ~ "10",
+  ))
+#查看正态分布
+shapiro_test_result <- shapiro.test(workers_males_count$Count)
+shapiro_test_result
+#不符合，取log
+# 对 Count 列进行对数转换
+workers_males_count$Log_Count <- log(workers_males_count$Count)
+
+# 对转换后的数据进行 Shapiro-Wilk 正态性检验
+shapiro_test_log_result <- shapiro.test(workers_males_count$Log_Count)
+print(shapiro_test_log_result)
+#符合了
+
+#模型拟合
+#线性模型
+model_log_count <- lmer(Log_Count ~ Treatment + (1 | WGT), data = workers_males_count)
+summary(model_log_count)
+confint(model_log_count, level = 0.95)
+#贝叶斯模型
+model_log_count_bayes <- brm(
+  Log_Count ~ Treatment + (1 | WGT), 
+  data = workers_males_count,
+  family = gaussian(),  # 如果Log_Count是连续变量，使用高斯分布
+  control = list(adapt_delta = 0.95)
+)
+summary(model_log_count_bayes)
+#模型检验
+#1.AICBIC
+# 经典模型的AIC和BIC
+AIC(model_log_count)
+BIC(model_log_count)
+
+# 贝叶斯模型的WAIC和LOO
+waic(model_log_count_bayes)
+loo_result <- loo(model_log_count_bayes)
+print(loo_result)
+#贝叶斯AICBIC表现更好
+
+#方差齐性
+# 提取标准化残差
+residuals_standardized <- resid(model_log_count, type = "pearson")
+# 绘制残差图
+plot(fitted(model_log_count), residuals_standardized)
+abline(h = 0, col = "red")
+residuals_bayes <- residuals(model_log_count_bayes)
+fitted_bayes <- fitted(model_log_count_bayes)
+# 绘制残差图
+plot(fitted_bayes, residuals_bayes)
+abline(h = 0, col = "red")
+#方差齐性glmm表现更好
+
+#残差正态
+shapiro_test_lmer <- shapiro.test(residuals_standardized)
+print(shapiro_test_lmer)
+shapiro_test_bayes <- shapiro.test(residuals_bayes)
+print(shapiro_test_bayes)
+#glmm残差正态
+#综合选glmm
+
+#R2
+r_squared <- r.squaredGLMM(model_log_count)
+
+print(r_squared)
+
+#画图
+workers_males_count$Treatment <- factor(workers_males_count$Treatment, levels = c("Control", "Strep", "Prothio"))
+p_value_AB <- 0.724  # A和B之间的p值
+p_value_AC <- 0.306  # A和C之间的p值
+
+p <- ggplot(workers_males_count, aes(x = Treatment, y = Log_Count)) +
+  geom_half_violin(aes(fill = Treatment), side = "r", trim = FALSE, position = position_nudge(x = 0.03)) +
+  geom_half_point(aes(color = Treatment), side = "l", position = position_nudge(x = -0.03)) +
+  geom_boxplot(aes(fill = Treatment), width = 0.12, position = position_nudge(x = 0.03), alpha = 0.4, color = "black") +
+  scale_fill_manual(values = c("Control" = "#F7D6DA", "Prothio" = "#B3D9B2", "Strep" = "#B3D1ED")) +
+  scale_color_manual(values = c("Control"= "darkred", "Prothio" = "darkgreen",  "Strep"= "darkblue")) +
+  theme_minimal() + 
+  labs(x = "Treatment", y = "Log Count") +
+  theme(panel.border = element_rect(color = "black", fill = NA, size = 1), panel.grid = element_blank()) +
+  geom_signif(comparisons = list(c("Control", "Prothio"), c("Control", "Strep")),
+              annotations = c(paste("p =", round(p_value_AB, 3)), paste("p =", round(p_value_AC, 3))),
+              y_position = c(max(workers_males_count$Log_Count, na.rm = TRUE) + 0.9, 
+                             max(workers_males_count$Log_Count, na.rm = TRUE) + 0.6),
+              tip_length = 0.02, textsize = 2.5, vjust = -0.2)+
+  expand_limits(y = max(workers_males_count$Log_Count, na.rm = TRUE) + 1.2)
+
+# 显示图表
+print(p)
+
+#Queens
+#数据处理
+queens_count <- beecc %>%
+  filter(Caste == "Queens") %>%
+  group_by(Colony.no.) %>%
+  summarise(Count = n())
+queens_count<-queens_count %>%
+  mutate(Treatment = case_when(
+    Colony.no. %in% c("8","12","15","18","19", "20", "21", "26", "27", "28") ~ "Strep", 
+    Colony.no. %in% c("2","6","7","10","11", "14", "16", "25", "29", "33") ~ "Prothio",
+    Colony.no. %in% c("1","4","5","9","13", "17", "22", "23", "24", "32") ~ "Control",
+  ))
+queens_count<-queens_count %>%
+  mutate(WGT = case_when(
+    Colony.no. %in% c("1","2","15") ~ "1", 
+    Colony.no. %in% c("4","11","27") ~ "2",
+    Colony.no. %in% c("5","16","19") ~ "3",
+    Colony.no. %in% c("9","10","12") ~ "4", 
+    Colony.no. %in% c("7","20","22") ~ "5",
+    Colony.no. %in% c("14","17","28") ~ "6",
+    Colony.no. %in% c("24","26","33") ~ "7",
+    Colony.no. %in% c("6","13","18") ~ "8", 
+    Colony.no. %in% c("8","25","32") ~ "9",
+    Colony.no. %in% c("21","23","29") ~ "10",
+  ))
+
+total_count_A <- queens_count %>%
+  filter(Treatment == "Strep") %>%  # 筛选 Treatment 为 "A"
+  summarize(Total_Count = sum(Count))  # 求和 Count 列
+
+# 打印结果
+print(total_count_A)
+total_count_B <- queens_count %>%
+  filter(Treatment == "Prothio") %>%  # 筛选 Treatment 为 "A"
+  summarize(Total_Count = sum(Count))  # 求和 Count 列
+
+# 打印结果
+print(total_count_B)
+total_count_C <- queens_count %>%
+  filter(Treatment == "Control") %>%  # 筛选 Treatment 为 "A"
+  summarize(Total_Count = sum(Count))  # 求和 Count 列
+
+# 打印结果
+print(total_count_C)
+#数据不成正态分布
+
+#模型拟合
+#1.线性模型 做不出来
+model_count_queen <- lmer(Count ~ Treatment + (1 | WGT), data = queens_count)
+summary(model_count_quee)
+#2.贝叶斯模型
+model_count_queen_bayes <- brm(
+  Count ~ Treatment + (1 | WGT), 
+  data = queens_count,
+  family = gaussian(),  # 如果 Count 是连续变量，使用高斯分布
+)
+summary(model_count_queen_bayes)
+#模型检验
+waic_result <- waic(model_count_queen_bayes)
+print(waic_result)
+
+loo_result <- loo(model_count_queen_bayes)
+print(loo_result)
+#方差齐性
+# 提取残差和拟合值
+residuals_bayes <- residuals(model_count_queen_bayes)
+fitted_bayes <- fitted(model_count_queen_bayes)
+
+# 绘制残差图
+plot(fitted_bayes, residuals_bayes)
+abline(h = 0, col = "red")
+#残差不属于正态分布
+# 运行 Kruskal-Wallis 检验
+kruskal_test_result <- kruskal.test(Count ~ Treatment, data = queens_count)
+print(kruskal_test_result)
+# 计算Kruskal-Wallis检验的p值
+kruskal_p_value <- kruskal_test_result$p.value
+# 进行 Kruskal-Wallis 检验
+kruskal_test_result <- kruskal.test(Count ~ Treatment, data = queens_count)
+median_values_tapply <- tapply(queens_count$Count, queens_count$Treatment, median)
+print(median_values_tapply)
+#画图
+# 提取 p 值
+p_value_kruskal <- round(kruskal_test_result$p.value, 3)
+queens_count$Treatment <- factor(queens_count$Treatment, levels = c("Control", "Strep", "Prothio"))
+p_kruskal <- ggplot(queens_count, aes(x = Treatment, y = Count)) +
+  geom_half_violin(aes(fill = Treatment), side = "r", trim = FALSE, position = position_nudge(x = 0.03)) +
+  geom_half_point(aes(color = Treatment), side = "l", position = position_nudge(x = -0.03)) +
+  geom_boxplot(aes(fill = Treatment), width = 0.12, position = position_nudge(x = 0.03), alpha = 0.4, color = "black") +
+  scale_fill_manual(values = c("Control" = "#F7D6DA", "Prothio" = "#B3D9B2", "Strep" = "#B3D1ED")) +
+  scale_color_manual(values = c("Control"= "darkred", "Prothio" = "darkgreen",  "Strep"= "darkblue")) +
+  theme_minimal() + 
+  labs(x = "Treatment", y = "Count") +
+  theme(
+    panel.border = element_rect(color = "black", fill = NA, size = 1), 
+    panel.grid = element_blank(),
+    axis.ticks.length = unit(-0.2, "cm"),  # 设置刻度线向内，长度为 0.2 cm
+    axis.ticks = element_line(color = "black"),  # 确保刻度线颜色清晰可见
+    axis.text.x = element_text(margin = margin(t = 0.5, unit = "cm")),  # 调整 x 轴刻度文字与刻度线的间距
+    axis.text.y = element_text(margin = margin(r = 0.5, unit = "cm"))   # 调整 y 轴刻度文字与刻度线的间距
+  ) +
+  annotate("text", x = 3.5, y = max(queens_count$Count, na.rm = TRUE) + 10, 
+           label = paste("p =", p_value_kruskal), size = 3.5, hjust = 1)
+
+# 显示图表
+print(p_kruskal)
+
+
+library(ggplot2)
+library(cowplot)
+
+tmntplot <- p + 
+  geom_jitter(aes(fill = Caste), shape = 21, position = position_jitter(0.2), size = 2) + 
+  scale_fill_manual(values = c("Queens"="#8DCDD5", "Workers&Males" = "#E6846D")) + 
+  geom_violin(alpha=0.4) +
+  theme_cowplot(12) +
+
+#死亡率
+  # 假设你的数据框名称是 beecc
+  # 计算每个 Colony.no. 中 Survival 为 'D' 的数量
+  death_counts <- beecc %>%
+  group_by(Colony.no.) %>%
+  summarise(Deaths = sum(Survival == "D"))
+
+# 查看结果
+print(death_counts)
+# 计算每个 Colony.no. 的数据总数
+total_counts <- beecc %>%
+  group_by(Colony.no.) %>%
+  summarise(Total_Counts = n())
+
+# 查看结果
+print(total_counts)
+siwanglv <- left_join(death_counts, total_counts, by = "Colony.no.")
+siwanglv <- siwanglv %>%
+  mutate(Death_Rate = Deaths / Total_Counts)
+siwanglv<-siwanglv %>%
+  mutate(Treatment = case_when(
+    Colony.no. %in% c("8","12","15","18","19", "20", "21", "26", "27", "28") ~ "Strep", 
+    Colony.no. %in% c("2","6","7","10","11", "14", "16", "25", "29", "33") ~ "Prothio",
+    Colony.no. %in% c("1","4","5","9","13", "17", "22", "23", "24", "32") ~ "Control",
+  ))
+siwanglv<-siwanglv %>%
+  mutate(WGT = case_when(
+    Colony.no. %in% c("1","2","15") ~ "1", 
+    Colony.no. %in% c("4","11","27") ~ "2",
+    Colony.no. %in% c("5","16","19") ~ "3",
+    Colony.no. %in% c("9","10","12") ~ "4", 
+    Colony.no. %in% c("7","20","22") ~ "5",
+    Colony.no. %in% c("14","17","28") ~ "6",
+    Colony.no. %in% c("24","26","33") ~ "7",
+    Colony.no. %in% c("6","13","18") ~ "8", 
+    Colony.no. %in% c("8","25","32") ~ "9",
+    Colony.no. %in% c("21","23","29") ~ "10",
+  ))
+# 查看结果
+print(siwanglv)
+# 对数据列进行Shapiro-Wilk检验
+
+shapiro_test_result <- shapiro.test(siwanglv$Death_Rate)
+
+# 查看检验结果
+print(shapiro_test_result)
+#建模
+#线性
+#1.线性模型
+model_death_glm <- lmer(Death_Rate ~ Treatment + (1 | WGT), data = siwanglv)
+summary(model_death_glm)
+confint(model_death_glm, level = 0.95)
+#贝叶斯模型
+model_death <- brm(
+  Death_Rate ~ Treatment + (1 | WGT), 
+  data = siwanglv,
+  family = gaussian(),  # 如果 Count 是连续变量，使用高斯分布
+)
+summary(model_death)
+#模型检验
+#1.AICBIC
+# 经典模型的AIC和BIC
+AIC(model_death_glm)
+BIC(model_death_glm)
+
+# 贝叶斯模型的WAIC和LOO
+waic(model_log_count_bayes)
+loo_result <- loo(model_log_count_bayes)
+print(loo_result)
+#glm好
+#方差齐性
+## 提取残差和拟合值
+residuals_death <- residuals(model_death_glm)
+fitted_death <- fitted(model_death_glm)
+
+# 绘制残差图
+plot(fitted_death, residuals_death)
+abline(h = 0, col = "red")
+
+#画图
+#画图
+# 提取 p 值
+
+siwanglv$Treatment <- factor(siwanglv$Treatment, levels = c("Control", "Strep", "Prothio"))
+p_value_AB <- 0.841  # Control 和 Prothio 之间的 p 值
+p_value_AC <- 0.028  # Control 和 Strep 之间的 p 值
+data_long_change$Treatment <- factor(data_long_change$Treatment, levels = c("Control", "Strep", "Prothio"))
+# 创建图表并添加 p 值
+p_death <- ggplot(siwanglv, aes(x = Treatment, y = Death_Rate)) +
+  geom_half_violin(aes(fill = Treatment), side = "r", trim = FALSE, position = position_nudge(x = 0.03)) +
+  geom_half_point(aes(color = Treatment), side = "l", position = position_nudge(x = -0.03)) +
+  geom_boxplot(aes(fill = Treatment), width = 0.12, position = position_nudge(x = 0.03), alpha = 0.4, color = "black") +
+  scale_fill_manual(values = c("Control" = "#F7D6DA", "Prothio" = "#B3D9B2", "Strep" = "#B3D1ED")) +
+  scale_color_manual(values = c("Control"= "darkred", "Prothio" = "darkgreen",  "Strep"= "darkblue")) +
+  theme_minimal() + 
+  labs(x = "Treatment", y = "Mortality") +
+  theme(
+    panel.border = element_rect(color = "black", fill = NA, size = 1), 
+    panel.grid = element_blank(),
+    axis.ticks.length = unit(-0.2, "cm"),  # 设置刻度线向内，长度为 0.2 cm
+    axis.ticks = element_line(color = "black"),  # 确保刻度线颜色清晰可见
+    axis.text.x = element_text(margin = margin(t = 0.5, unit = "cm")),  # 调整 x 轴刻度文字与刻度线的间距
+    axis.text.y = element_text(margin = margin(r = 0.5, unit = "cm"))   # 调整 y 轴刻度文字与刻度线的间距
+  ) +
+  geom_signif(comparisons = list(c("Control", "Prothio"), c("Control", "Strep")),
+              annotations = c(paste("p =", 0.841), paste("p =", 0.028)),
+              y_position = c(max(siwanglv$Death_Rate, na.rm = TRUE) +0.3, 
+                             max(siwanglv$Death_Rate, na.rm = TRUE) +0.2),
+              tip_length = 0.02, textsize = 2.5, vjust = -0.2)+
+  expand_limits(y = max(siwanglv$Death_Rate, na.rm = TRUE) ) 
+
+print(p_death)
+# 添加上边和右边的边框
+  theme(
+    panel.border = element_rect(color = "black", fill = NA, size = 1),
+    axis.ticks.length = unit(-0.15, "cm"),  # 调整刻度线的长度，向内
+    axis.text.x = element_text(margin = margin(t = 0.3, unit = "cm")),  # x轴刻度文字与刻度线的间距
+    axis.text.y = element_text(margin = margin(r = 0.3, unit = "cm")),  # y轴刻度文字与刻度线的间距
+    axis.ticks = element_line(color = "black"),
+    legend.title = element_blank()  # 移除图例标题
+  )
+
+tmntplot
+RStudio.Version()$version
